@@ -1,0 +1,648 @@
+from __future__ import annotations
+
+import datetime
+import re
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel
+
+from datamate.io.raw import BusinessRaw
+from datamate.mapping.fields import (
+    REQUIRED_FIELDS,
+    SIMPLE_AT_LEAST_ONE,
+    SIMPLE_ENTITIES,
+    SIMPLE_REQUIRED,
+)
+from datamate.mapping.model import Entity, Mapping, mapping_fingerprint
+
+if TYPE_CHECKING:
+    from datamate.etl.build import CanonicalData
+
+StepName = Literal[
+    "A",
+    "B_orders",
+    "B_order_lines",
+    "B_products",
+    "B_unit_conversions",
+    "B_customers",
+    "C",
+    "D",
+]
+
+_PRODUCT_JOIN_ENTITIES: frozenset[str] = frozenset(
+    {
+        "purchase_lines",
+        "lots",
+        "sale_lots",
+        "stock_snapshot",
+        "stock_moves",
+        "price_history",
+        "drug_info",
+    }
+)
+_ORDER_JOIN_ENTITIES: frozenset[str] = frozenset(
+    {"payments", "debts", "deliveries", "sale_lots"}
+)
+_SIMPLE_PARSE_RATE_MIN = 0.95
+_JOIN_RATE_WARN = 0.9
+
+_ID_CODE_RE = re.compile(r"^[A-Za-z]{1,6}[-_]?\d{2,}$")
+_PHONE_LIKE_RE = re.compile(r"^0(?:\s*\d){9,10}$")
+_ORDER_MONEY_FIELDS: tuple[str, ...] = (
+    "order_subtotal",
+    "order_discount",
+    "shipping_fee",
+    "order_payable",
+)
+_ALLOWED_SHARED_PAIRS: frozenset[frozenset[str]] = frozenset(
+    {
+        frozenset({"order_date", "order_ts"}),
+        frozenset({"qty", "unit"}),
+    }
+)
+
+
+def is_id_or_phone_like(value: str) -> bool:
+    s = value.strip()
+    return bool(_ID_CODE_RE.match(s) or _PHONE_LIKE_RE.match(s))
+
+
+class Issue(BaseModel):
+    step: str
+    severity: Literal["error", "warning"]
+    message: str
+    # When set, infer may re-ask once and then drop this optional field instead of blocking.
+    drop_field: str | None = None
+
+
+# Last successful build, keyed by business directory + mapping_fingerprint.
+_last_validated_build: tuple[str, CanonicalData] | None = None
+
+
+def _build_cache_key(raw: BusinessRaw, mapping: Mapping) -> str:
+    return f"{raw.business_dir}|{mapping_fingerprint(mapping)}"
+
+
+def cached_canonical(raw: BusinessRaw, mapping: Mapping) -> CanonicalData | None:
+    """Return the canonical frames from the latest validate_mapping of this mapping."""
+    cached = _last_validated_build
+    if cached is None or cached[0] != _build_cache_key(raw, mapping):
+        return None
+    return cached[1]
+
+
+def _check_line_math_share(canon: CanonicalData) -> float | None:
+    df = canon.order_lines
+    if df.empty:
+        return None
+    checked = 0
+    matched = 0
+    for row in df.to_dict("records"):
+        qty = row.get("qty")
+        uprice = row.get("unit_price")
+        lamt = row.get("line_amount")
+        ldisc = row.get("line_discount")
+        if not isinstance(qty, Decimal) or uprice is None or lamt is None:
+            continue
+        if qty < 0:
+            continue
+        checked += 1
+        disc_val = Decimal(int(ldisc)) if ldisc is not None else Decimal(0)
+        expected_1 = (qty * Decimal(int(uprice))) - disc_val
+        expected_2 = qty * (Decimal(int(uprice)) - disc_val)
+        actual = Decimal(int(lamt))
+        if abs(expected_1 - actual) <= Decimal(1) or abs(expected_2 - actual) <= Decimal(1):
+            matched += 1
+    if checked == 0:
+        return None
+    return matched / checked
+
+
+def validate_mapping(
+    raw: BusinessRaw, mapping: Mapping
+) -> tuple[list[Issue], CanonicalData | None]:
+    issues: list[Issue] = []
+
+    for entity_name, req_fields in REQUIRED_FIELDS.items():
+        ent: Entity = entity_name  # type: ignore[assignment]
+        tm = mapping.tables.get(ent)
+        if tm is None:
+            issues.append(
+                Issue(
+                    step=f"B_{entity_name}",
+                    severity="error",
+                    message=f"Entity {entity_name!r} is missing from mapping.tables.",
+                )
+            )
+            continue
+        mapped_keys = set(tm.columns.keys()) | set(tm.join.keys())
+        missing = sorted(req_fields - mapped_keys)
+        if missing:
+            issues.append(
+                Issue(
+                    step=f"B_{entity_name}",
+                    severity="error",
+                    message=(
+                        f"Entity {entity_name!r} is missing required canonical field(s): "
+                        f"{missing}. Mapped columns: {tm.columns}"
+                    ),
+                )
+            )
+
+    orders_tm = mapping.tables.get("orders")
+    if orders_tm is not None and "status" not in orders_tm.columns:
+        issues.append(
+            Issue(
+                step="B_orders",
+                severity="warning",
+                message="no status column: all orders completed",
+            )
+        )
+
+    # Check duplicate raw column within the same entity, allowing (order_date, order_ts) and (qty, unit)
+    for ent, tm in mapping.tables.items():
+        by_raw_col: dict[str, list[str]] = {}
+        for c_field, raw_col in tm.columns.items():
+            by_raw_col.setdefault(raw_col, []).append(c_field)
+        for raw_col, c_fields in by_raw_col.items():
+            if len(c_fields) > 1 and frozenset(c_fields) not in _ALLOWED_SHARED_PAIRS:
+                fields_joined = " and ".join(c_fields)
+                issues.append(
+                    Issue(
+                        step=f"B_{ent}",
+                        severity="error",
+                        message=f"{fields_joined} both map to {raw_col!r}",
+                    )
+                )
+
+    orders_tm = mapping.tables["orders"]
+    lines_tm = mapping.tables["order_lines"]
+
+    # order_id stays required only when orders come from their own table.
+    missing_own_order_id = (
+        bool(orders_tm.sources)
+        and "order_id" not in orders_tm.columns
+        and "order_id" not in orders_tm.join
+    )
+    if missing_own_order_id:
+        issues.append(
+            Issue(
+                step="B_orders",
+                severity="error",
+                message=(
+                    "Entity 'orders' has its own table but is missing required canonical "
+                    "field 'order_id'."
+                ),
+            )
+        )
+
+    # Check derived orders mapping order-level money fields to a line-level column
+    if orders_tm.derived_from == "order_lines":
+        line_col_to_field = {raw_col: l_field for l_field, raw_col in lines_tm.columns.items()}
+        for om_field in _ORDER_MONEY_FIELDS:
+            raw_col = orders_tm.columns.get(om_field)
+            if raw_col is not None and raw_col in line_col_to_field:
+                l_field = line_col_to_field[raw_col]
+                issues.append(
+                    Issue(
+                        step="B_orders",
+                        severity="error",
+                        drop_field=f"orders.{om_field}",
+                        message=(
+                            f"{om_field} maps to {raw_col!r}, which is a line-level column "
+                            f"({l_field}); in a flat sales table order-level totals usually do "
+                            "not exist: set it to null unless a column holds the whole-order total"
+                        ),
+                    )
+                )
+
+    # Check Step D walk_in_values constraints
+    bad_walk_in = [v for v in mapping.walk_in_values if is_id_or_phone_like(v)]
+    if bad_walk_in:
+        issues.append(
+            Issue(
+                step="D",
+                severity="error",
+                message=(
+                    f"walk_in_values contains id-like or phone-like value(s) {bad_walk_in}; "
+                    "only select generic anonymous customer labels."
+                ),
+            )
+        )
+    if len(mapping.walk_in_values) > 3:
+        issues.append(
+            Issue(
+                step="D",
+                severity="error",
+                message=(
+                    f"walk_in_values has {len(mapping.walk_in_values)} values "
+                    f"({mapping.walk_in_values}), which exceeds the maximum of 3."
+                ),
+            )
+        )
+
+    from datamate.etl.build import MappingError, build_canonical
+
+    global _last_validated_build
+    cached = cached_canonical(raw, mapping)
+    if cached is not None:
+        canon = cached
+    else:
+        try:
+            canon = build_canonical(raw, mapping)
+        except MappingError as exc:
+            msg = str(exc)
+            step_target = "A"
+            for ent_key in (
+                "orders",
+                "order_lines",
+                "products",
+                "unit_conversions",
+                "customers",
+                *SIMPLE_ENTITIES,
+            ):
+                if f"Entity {ent_key!r} field" in msg:
+                    step_target = f"B_{ent_key}"
+                    break
+            issues.append(Issue(step=step_target, severity="error", message=msg))
+            return issues, None
+        _last_validated_build = (_build_cache_key(raw, mapping), canon)
+
+    rep = canon.report
+
+    # Check parse rates < 0.98 for order_date, line_amount, qty
+    parse_checks = [
+        ("orders.order_date", "B_orders"),
+        ("order_lines.line_amount", "B_order_lines"),
+        ("order_lines.qty", "B_order_lines"),
+    ]
+    for stat_key, step_id in parse_checks:
+        st = rep.parse_stats.get(stat_key)
+        if st is None or st.non_null == 0:
+            if stat_key in {"orders.order_date", "order_lines.line_amount"}:
+                issues.append(
+                    Issue(
+                        step=step_id,
+                        severity="error",
+                        message=f"Field {stat_key!r} has 0 non-null values.",
+                    )
+                )
+            continue
+        if st.rate < 0.98:
+            issues.append(
+                Issue(
+                    step=step_id,
+                    severity="error",
+                    message=(
+                        f"Field {stat_key!r} parse rate is {st.rate:.1%} (< 98%, "
+                        f"{st.parsed}/{st.non_null} parsed). Failing examples: {st.examples}"
+                    ),
+                )
+            )
+
+    # Unmapped statuses -> step C
+    if rep.unmapped_statuses:
+        issues.append(
+            Issue(
+                step="C",
+                severity="error",
+                message=(
+                    f"Unmapped status values found in data: {rep.unmapped_statuses}. "
+                    "Every raw status value must map to one of: "
+                    "completed, cancelled, returned, shipping."
+                ),
+            )
+        )
+
+    # Subtotal match share < 0.9 when order_subtotal is mapped
+    integ = rep.integrity
+    if (
+        "order_subtotal" in orders_tm.columns
+        and integ.subtotal_match_share is not None
+        and integ.subtotal_match_share < 0.9
+    ):
+        diff_pct = (1.0 - integ.subtotal_match_share) * 100.0
+        sub_col = orders_tm.columns.get("order_subtotal")
+        lamt_col = lines_tm.columns.get("line_amount")
+        if orders_tm.derived_from == "order_lines":
+            issues.append(
+                Issue(
+                    step="B_orders",
+                    severity="error",
+                    drop_field="orders.order_subtotal",
+                    message=(
+                        f"sum of line_amount ({lamt_col!r}) differs from order_subtotal "
+                        f"({sub_col!r}) in {diff_pct:.1f}% of orders "
+                        f"(match share={integ.subtotal_match_share:.1%}): "
+                        "order_subtotal is the likely culprit; in a flat sales table "
+                        "order-level totals usually do not exist, so set order_subtotal to null "
+                        "unless a column truly holds the whole-order merchandise subtotal."
+                    ),
+                )
+            )
+        else:
+            issues.append(
+                Issue(
+                    step="B_order_lines",
+                    severity="error",
+                    drop_field="orders.order_subtotal",
+                    message=(
+                        f"sum of line_amount ({lamt_col!r}) differs from order_subtotal "
+                        f"({sub_col!r}) in {diff_pct:.1f}% of orders "
+                        f"(match share={integ.subtotal_match_share:.1%}): "
+                        "line_amount may be the unit price or the pre-discount amount, "
+                        "or order_subtotal in orders may be the after-discount / with-shipping "
+                        "total (`order_payable`)."
+                    ),
+                )
+            )
+
+    # Orphan lines or orders without lines > 5% of orders
+    n_orders = rep.rows_per_table.get("orders", 0)
+    if n_orders > 0 and (
+        integ.orders_without_lines / n_orders > 0.05
+        or integ.orphan_line_orders / n_orders > 0.05
+    ):
+        step_join = "B_orders" if orders_tm.derived_from is None else "B_order_lines"
+        issues.append(
+            Issue(
+                step=step_join,
+                severity="error",
+                message=(
+                    f"Join key mismatch between orders and order_lines: "
+                    f"orders_without_lines={integ.orders_without_lines}/{n_orders}, "
+                    f"orphan_line_orders={integ.orphan_line_orders}/{n_orders} (> 5%)."
+                ),
+            )
+        )
+
+    # Order dates outside [2000-01-01, data_end_date + 1 day] for > 1% of orders
+    if n_orders > 0 and not canon.orders.empty:
+        min_allowed = datetime.date(2000, 1, 1)
+        max_allowed = (
+            mapping.data_end_date + datetime.timedelta(days=1)
+            if mapping.data_end_date is not None
+            else datetime.date(2030, 12, 31)
+        )
+        out_of_range = 0
+        for d in canon.orders["order_date"].tolist():
+            if isinstance(d, datetime.date) and (d < min_allowed or d > max_allowed):
+                out_of_range += 1
+        if out_of_range / n_orders > 0.01:
+            issues.append(
+                Issue(
+                    step="B_orders",
+                    severity="error",
+                    message=(
+                        f"{out_of_range}/{n_orders} orders ({out_of_range / n_orders:.1%}) have "
+                        f"order_date outside [{min_allowed}..{max_allowed}] "
+                        f"(min={integ.min_order_date}, max={integ.max_order_date})."
+                    ),
+                )
+            )
+
+    # Line math warning: qty * unit_price - (line_discount or 0) == line_amount
+    if all(k in lines_tm.columns for k in ("qty", "unit_price", "line_amount")):
+        math_share = _check_line_math_share(canon)
+        if math_share is not None and math_share < 0.8:
+            issues.append(
+                Issue(
+                    step="B_order_lines",
+                    severity="warning",
+                    drop_field="order_lines.unit_price",
+                    message=(
+                        f"qty * unit_price - line_discount matches line_amount in only "
+                        f"{math_share:.1%} of lines (< 80%)."
+                    ),
+                )
+            )
+
+    issues.extend(_line_shape_issues(canon, lines_tm.columns))
+    _validate_simple_entities(mapping, canon, issues)
+
+    return issues, canon
+
+
+# Shares seen on 44 mapped shops: at most 3% of multi-item orders repeat one amount on
+# every line; a whole-order total mapped as line_amount repeats it on nearly all.
+_REPEATED_AMOUNT_SHARE = 0.5
+_MIN_PRODUCT_NAMES = 4
+_MIN_LINES_FOR_NAMES = 200
+
+
+def _line_shape_issues(canon: CanonicalData, line_columns: dict[str, Any]) -> list[Issue]:
+    """Whole-table checks that a few sample rows cannot show.
+
+    - line_amount repeats one value on every line of orders with different products:
+      the column holds the order total, so summing lines multiplies it.
+    - product_name has only a handful of values over many lines: the column is a kind
+      or attribute ("1 mặt", "2 mặt"), not the product.
+    """
+    out: list[Issue] = []
+    lines = canon.order_lines
+    if lines.empty:
+        return out
+    frame = lines[["order_id", "product_name", "line_amount"]].dropna(subset=["order_id"])
+    grouped = frame.groupby("order_id").agg(
+        n=("product_name", "size"),
+        names=("product_name", "nunique"),
+        amounts=("line_amount", "nunique"),
+    )
+    multi = grouped[(grouped["n"] >= 2) & (grouped["names"] >= 2)]
+    if len(multi) >= 20:
+        share = float((multi["amounts"] == 1).mean())
+        if share > _REPEATED_AMOUNT_SHARE:
+            out.append(
+                Issue(
+                    step="B_order_lines",
+                    severity="error",
+                    message=(
+                        f"line_amount ({line_columns.get('line_amount')!r}) is the same on every "
+                        f"line in {share:.0%} of orders that hold different products: that "
+                        "column looks like the whole-order total repeated per line. Map "
+                        "line_amount to the per-line money column, and the order total to "
+                        "orders.order_payable or order_subtotal."
+                    ),
+                )
+            )
+    names = lines["product_name"].dropna()
+    if len(names) >= _MIN_LINES_FOR_NAMES and names.nunique() < _MIN_PRODUCT_NAMES:
+        sample = sorted(map(str, names.unique()))
+        out.append(
+            Issue(
+                step="B_order_lines",
+                severity="error",
+                message=(
+                    f"product_name ({line_columns.get('product_name')!r}) has only "
+                    f"{names.nunique()} values {sample} over {len(names)} lines: that looks like "
+                    "a kind or option column, not the product name."
+                ),
+            )
+        )
+    return out
+
+
+def _join_rate(left_keys: list[object], right_keys: set[object]) -> float | None:
+    left = [k for k in left_keys if k is not None]
+    if not left:
+        return None
+    return sum(1 for k in left if k in right_keys) / len(left)
+
+
+def _validate_simple_entities(
+    mapping: Mapping,
+    canon: CanonicalData,
+    issues: list[Issue],
+) -> None:
+    rep = canon.report
+    for ent in SIMPLE_ENTITIES:
+        tm = mapping.tables.get(ent)
+        if tm is None:
+            continue
+        for field_name in tm.columns:
+            st = rep.parse_stats.get(f"{ent}.{field_name}")
+            if st is None or st.non_null == 0:
+                continue
+            if st.rate < _SIMPLE_PARSE_RATE_MIN:
+                issues.append(
+                    Issue(
+                        step=f"B_{ent}",
+                        severity="warning",
+                        drop_field=f"{ent}.{field_name}",
+                        message=(
+                            f"Field {ent}.{field_name!r} parse rate is {st.rate:.1%} "
+                            f"(< {_SIMPLE_PARSE_RATE_MIN:.0%}, {st.parsed}/{st.non_null}). "
+                            f"Examples: {st.examples}"
+                        ),
+                    )
+                )
+
+        # Required fields must still be present (debts / drug_info: at least one of two).
+        mapped = set(tm.columns)
+        req = SIMPLE_REQUIRED.get(ent, set())
+        missing_req = sorted(req - mapped)
+        if missing_req:
+            issues.append(
+                Issue(
+                    step=f"B_{ent}",
+                    severity="warning",
+                    drop_field=f"{ent}.{missing_req[0]}",
+                    message=f"Entity {ent!r} missing required field(s) {missing_req}",
+                )
+            )
+        at_least = SIMPLE_AT_LEAST_ONE.get(ent)
+        if at_least is not None and not (mapped & at_least):
+            first = min(at_least)
+            joined = " or ".join(sorted(at_least))
+            issues.append(
+                Issue(
+                    step=f"B_{ent}",
+                    severity="warning",
+                    drop_field=f"{ent}.{first}",
+                    message=f"{ent} needs {joined}; dropping entity",
+                )
+            )
+
+    product_keys: set[object] = set()
+    if not canon.products.empty and "product_key" in canon.products.columns:
+        product_keys.update(canon.products["product_key"].tolist())
+    if not canon.order_lines.empty and "product_key" in canon.order_lines.columns:
+        product_keys.update(canon.order_lines["product_key"].tolist())
+    product_keys.discard(None)
+
+    order_ids: set[object] = set()
+    if not canon.orders.empty and "order_id" in canon.orders.columns:
+        order_ids.update(canon.orders["order_id"].tolist())
+    order_ids.discard(None)
+
+    for ent in _PRODUCT_JOIN_ENTITIES:
+        frame = getattr(canon, ent, None)
+        if frame is None or frame.empty or "product_key" not in frame.columns:
+            continue
+        rate = _join_rate(frame["product_key"].tolist(), product_keys)
+        if rate is not None and rate < _JOIN_RATE_WARN:
+            issues.append(
+                Issue(
+                    step=f"B_{ent}",
+                    severity="warning",
+                    message=(
+                        f"{ent}.product_key join rate to products/order_lines is "
+                        f"{rate:.1%} (< {_JOIN_RATE_WARN:.0%})"
+                    ),
+                )
+            )
+
+    for ent in _ORDER_JOIN_ENTITIES:
+        frame = getattr(canon, ent, None)
+        if frame is None or frame.empty or "order_id" not in frame.columns:
+            continue
+        rate = _join_rate(frame["order_id"].tolist(), order_ids)
+        if rate is not None and rate < _JOIN_RATE_WARN:
+            issues.append(
+                Issue(
+                    step=f"B_{ent}",
+                    severity="warning",
+                    message=(
+                        f"{ent}.order_id join rate to orders is "
+                        f"{rate:.1%} (< {_JOIN_RATE_WARN:.0%})"
+                    ),
+                )
+            )
+
+    # purchases.total_amount vs sum(purchase_lines.line_amount) per receipt
+    if (
+        "purchases" in mapping.tables
+        and "purchase_lines" in mapping.tables
+        and not canon.purchases.empty
+        and not canon.purchase_lines.empty
+        and "total_amount" in mapping.tables["purchases"].columns
+        and "line_amount" in mapping.tables["purchase_lines"].columns
+    ):
+        from collections import Counter
+
+        line_sum: Counter[object] = Counter()
+        for row in canon.purchase_lines.to_dict("records"):
+            rid = row.get("receipt_id")
+            amt = row.get("line_amount")
+            if rid is not None and amt is not None:
+                line_sum[rid] += int(amt)
+        checked = 0
+        matched = 0
+        for row in canon.purchases.to_dict("records"):
+            rid = row.get("receipt_id")
+            total = row.get("total_amount")
+            if rid is None or total is None or rid not in line_sum:
+                continue
+            checked += 1
+            if abs(int(total) - line_sum[rid]) <= 1:
+                matched += 1
+        if checked > 0 and matched / checked < 0.8:
+            issues.append(
+                Issue(
+                    step="B_purchases",
+                    severity="warning",
+                    message=(
+                        f"purchases.total_amount matches sum(purchase_lines.line_amount) "
+                        f"in only {matched / checked:.1%} of receipts (< 80%)"
+                    ),
+                )
+            )
+
+    if "debts" in mapping.tables and not canon.debts.empty:
+        for row in canon.debts.to_dict("records"):
+            remaining = row.get("amount_remaining")
+            total = row.get("amount_total")
+            if remaining is None or total is None:
+                continue
+            if int(remaining) > int(total):
+                issues.append(
+                    Issue(
+                        step="B_debts",
+                        severity="warning",
+                        message=(
+                            "debts.amount_remaining exceeds amount_total for at least one row"
+                        ),
+                    )
+                )
+                break

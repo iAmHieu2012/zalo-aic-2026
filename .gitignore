@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Training & inference outputs
+artifacts/
+checkpoints/
+result/
+schema_dump.txt
+*.tar.gz
+
+# Reference repos (read-only, not part of the solution)
+refs/
+
+# Secrets
+.env
+
+# Competition data (organizer-provided, not redistributed)
+train/
+public_test/
+private_test/
+
+# Run outputs & caches (regenerable / large; LLM cache kept locally)
+cache/
+result*/
+runs/
+eval/runs/
+docker/models/
+
+# Scratch notes
+temp.md
