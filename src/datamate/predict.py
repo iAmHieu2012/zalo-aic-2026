@@ -21,8 +21,6 @@ from datamate.config import apply_runtime_paths, settings
 from datamate.io.paths import business_dir
 from datamate.io.questions import Question, load_questions
 from datamate.scoring.answer import Answer, to_submission_line
-from datamate.systems.direct import DirectSystem
-from datamate.systems.hybrid import HybridSystem
 from datamate.systems.pipeline import LLM_UNAVAILABLE, PipelineSystem
 
 # Default: 5h15m so a few minutes remain for vLLM shutdown / rewrite / check.
@@ -108,12 +106,8 @@ def _answer_one(
 
 
 def _build_system(system_name: str, client: Any | None) -> Any:
-    if system_name == "hybrid":
-        return HybridSystem(name="hybrid", enable_llm_fallback=True, client=client)
-    if system_name == "fastcore":
-        return HybridSystem(name="fastcore", enable_llm_fallback=False, client=client)
-    if system_name == "direct":
-        return DirectSystem(name="direct", client=client)
+    if system_name != "pipeline_llm":
+        raise ValueError(f"unknown system {system_name!r}; only 'pipeline_llm' is available")
     return PipelineSystem(name="pipeline_llm", client=client)
 
 
@@ -386,9 +380,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--system",
-        default=os.environ.get("DATAMATE_SYSTEM", "hybrid"),
-        choices=["hybrid", "fastcore", "pipeline_llm", "direct"],
-        help="System mode: hybrid (default: FastCore Tier-1 + LLM/DuckDB Tier-2/3), fastcore (CPU-only), pipeline_llm, or direct",
+        default=os.environ.get("DATAMATE_SYSTEM", "pipeline_llm"),
+        choices=["pipeline_llm"],
+        help="System mode: pipeline_llm (Qwen3-14B + DuckDB pipeline)",
     )
     args = parser.parse_args(argv)
 

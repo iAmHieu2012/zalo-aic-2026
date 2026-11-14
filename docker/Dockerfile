@@ -1,4 +1,4 @@
-# Offline DataMate Hybrid image for 2 x RTX 5090 (Blackwell / sm_120).
+# Offline DataMate pipeline_llm image for 2 x RTX 5090 (Blackwell / sm_120).
 # Compliant with Zalo AI Challenge 2026 Docker Guide:
 #   docker run --rm --gpus '"device=0,1"' --network none --shm-size=16g \
 #     --entrypoint bash -v /path/to/test:/data:ro -v /path/to/output:/result \
@@ -14,7 +14,7 @@ ENV HF_HUB_OFFLINE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app \
     DATAMATE_PROJECT_ROOT=/app \
-    DATAMATE_SYSTEM=hybrid \
+    DATAMATE_SYSTEM=pipeline_llm \
     VLLM_USE_FLASHINFER_SAMPLER=0 \
     LLM_BASE_URL=http://127.0.0.1:8000/v1 \
     LLM_MODEL=qwen3-14b \
@@ -28,7 +28,6 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY evals /app/evals
-COPY eval /app/eval
 COPY rules /app/rules
 COPY train/rulebook.md /app/train/rulebook.md
 

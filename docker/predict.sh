@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Offline entrypoint for Zalo AI Challenge 2026 DataMate Track:
 # 1. Starts local vLLM (Qwen3-14B-FP8) if GPU + weights exist.
-# 2. Runs HybridSystem (Tier-1 FastCore deterministic + Tier-2 LLM DuckDB Engine).
-# 3. If vLLM fails or is absent, gracefully falls back to Tier-1 FastCore (CPU) instead of 0-score all-abstain.
+# 2. Runs PipelineSystem (pipeline_llm: Qwen3-14B + DuckDB).
+# 3. If vLLM fails or is absent, writes an all-abstain submission (score 0, never negative).
 set -euo pipefail
 
 DATA_DIR="${DATAMATE_DATA_DIR:-/data}"
 OUT_DIR="${DATAMATE_OUT_DIR:-/result}"
 MODEL_DIR="${DATAMATE_MODEL_DIR:-/models/Qwen3-14B-FP8}"
 SERVED_NAME="${LLM_MODEL:-qwen3-14b}"
-SYSTEM_MODE="${DATAMATE_SYSTEM:-hybrid}"
+SYSTEM_MODE="${DATAMATE_SYSTEM:-pipeline_llm}"
 WORKERS="${DATAMATE_WORKERS:-8}"
 TIME_BUDGET_S="${DATAMATE_TIME_BUDGET_S:-18900}"
 TP_SIZE="${DATAMATE_TP_SIZE:-1}"  # 14B FP8 fits one 32 GB RTX 5090 card; override with DATAMATE_TP_SIZE=2 if desired
@@ -53,17 +53,6 @@ print(f"wrote all-abstain submission ({len(ids)} lines) -> {sub}")
 PY
 }
 
-run_fastcore_fallback() {
-  echo "Running FastCore deterministic CPU fallback -> ${OUT_DIR}/submission.jsonl ..."
-  if ! python3 -m datamate.predict \
-    --data-dir "${DATA_DIR}" \
-    --out-dir "${OUT_DIR}" \
-    --system fastcore \
-    --workers "${WORKERS}" \
-    --time-budget-s "${TIME_BUDGET_S}"; then
-    write_all_abstain
-  fi
-}
 
 VLLM_PID=""
 PREDICT_PID=""
@@ -81,14 +70,9 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-if [[ "${SYSTEM_MODE}" == "fastcore" ]]; then
-  run_fastcore_fallback
-  exit 0
-fi
-
 if [[ ! -d "${MODEL_DIR}" ]]; then
-  echo "WARNING: model dir missing at ${MODEL_DIR}; falling back to FastCore deterministic mode" >&2
-  run_fastcore_fallback
+  echo "WARNING: model dir missing at ${MODEL_DIR}; writing all-abstain submission" >&2
+  write_all_abstain
   exit 0
 fi
 
@@ -124,8 +108,8 @@ while [[ "${elapsed}" -lt "${VLLM_WAIT_S}" ]]; do
 done
 
 if [[ "${ready}" -ne 1 ]]; then
-  echo "WARNING: vLLM failed to start within ${VLLM_WAIT_S}s; falling back to FastCore deterministic mode" >&2
-  run_fastcore_fallback
+  echo "WARNING: vLLM failed to start within ${VLLM_WAIT_S}s; writing all-abstain submission" >&2
+  write_all_abstain
   exit 0
 fi
 

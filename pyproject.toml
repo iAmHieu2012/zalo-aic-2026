@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "datamate"
 version = "0.2.0"
-description = "Zalo AI Challenge 2026 - DataMate Hybrid Offline Agent (FastCore + LLM DuckDB Engine)"
+description = "Zalo AI Challenge 2026 - DataMate offline agent (pipeline_llm: Qwen3-14B + DuckDB)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -41,7 +41,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["train", "public_test", "data", "cache", "runs", "eval/runs", "eval/synth/out"]
+extend-exclude = ["train", "public_test", "data", "cache", "runs"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]

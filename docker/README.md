@@ -1,6 +1,6 @@
 # DataMate Offline Docker Package (Private Test / 2 × RTX 5090)
 
-Gói Docker nộp bài theo đúng chuẩn **Zalo AI Challenge 2026 — DataMate Track** ([`RULE.MD`](file:///home/iamhieu2012/Dev/zalo-aic-2026/RULE.MD)):
+Gói Docker nộp bài theo đúng chuẩn **Zalo AI Challenge 2026 — DataMate Track** ([`docs/competition/RULE.MD`](../docs/competition/RULE.MD)):
 - **Phần cứng chấm bài (Rule 7):** `2 × NVIDIA RTX 5090` (**32 GB VRAM mỗi card, tổng 64 GB VRAM**, kiến trúc Blackwell / `sm_120`, **CUDA ≥ 12.8**), **512 GB RAM**, thời gian chạy tối đa **6 giờ** wall-clock (tính cả thời gian load model), `--network none`, `/data` read-only, `/result` writable.
 - **Yêu cầu tái lập kết quả (Rule 8):** Điểm lệch giữa lần chạy nộp `submission.jsonl` và lần BTC chạy lại Docker trên `2 × RTX 5090` phải thoả mãn `|PA(uploaded) − PA(re-run)| ≤ 0.03`.
 - **Lệnh chấm chuẩn của BTC:**
