@@ -83,6 +83,8 @@ class LLMClient:
         self.disable_thinking = (
             disable_thinking if disable_thinking is not None else settings.llm_disable_thinking
         )
+        # Few-shot examples a parser prompt keeps for this client (None: fit to budget).
+        self.parse_example_limit: int | None = None
         self.usage_log: list[UsageEntry] = []
         self._token_count_cache: dict[str, int] = {}
         # Circuit breaker shared by the eval worker threads (see _admit / _record).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import threading
 import time
 from collections.abc import Callable
@@ -66,7 +67,7 @@ from datamate.query.units import describe_unit, parse_unit_question
 from datamate.rules import RuleConfig
 from datamate.rules.from_rulebook import RulebookConfig, load_split_rulebook
 from datamate.rules.parse_rulebook import RuleRow
-from datamate.scoring.answer import Answer
+from datamate.scoring.answer import Answer, to_submission_line
 from datamate.timeres import LunarCalendar, load_calendar
 
 LLM_UNAVAILABLE = "llm_unavailable"
@@ -146,6 +147,7 @@ class PipelineSystem:
         self.name = name
         self.mapping_provider = mapping_provider or llm_mapping_provider
         self._client = client
+        self._parse_client: Any | None = None
         self._owns_client = client is None
         self._by_business: dict[tuple[str, str], _BusinessBundle] = {}
         # One lock per shop so a slow mapping blocks only that shop's questions.
@@ -165,6 +167,20 @@ class PipelineSystem:
             self._client = get_client()
         return self._client
 
+    @property
+    def parse_client(self) -> Any:
+        """Client for the fast-pass question parsers: a LoRA adapter served under
+        settings.llm_parse_model when set, prompted without few-shots; else the base."""
+        if not settings.llm_parse_model:
+            return self.client
+        if self._parse_client is None:
+            from datamate.llm.client import LLMClient
+
+            parse = LLMClient(model=settings.llm_parse_model)
+            parse.parse_example_limit = settings.parse_example_limit
+            self._parse_client = parse
+        return self._parse_client
+
     def close(self) -> None:
         for bundle in self._by_business.values():
             if bundle.connection is not None:
@@ -176,6 +192,9 @@ class PipelineSystem:
             if callable(close):
                 close()
             self._client = None
+        if self._parse_client is not None:
+            self._parse_client.close()
+            self._parse_client = None
 
     def answer(self, question: Question, workdir: Path) -> tuple[Answer, dict[str, Any]]:
         answer, trace = self._answer(question, workdir)
@@ -238,7 +257,7 @@ class PipelineSystem:
                 return self._parse_and_answer(
                     question, bundle, trace, wall_t0, ThinkingClient(self.client)
                 )
-            answer, trace = self._parse_and_answer(question, bundle, trace, wall_t0, self.client)
+            answer, trace = self._parse_and_answer(question, bundle, trace, wall_t0, self.parse_client)
             reason = trace.get("abstain_reason")
             if (
                 settings.parse_thinking == "retry"
@@ -335,6 +354,30 @@ class PipelineSystem:
             trace["timings"]["total_s"] = round(time.perf_counter() - wall_t0, 6)
             return Answer.abstain(), trace
 
+        if (
+            settings.lora_scope_crosscheck
+            and self._parse_client is not None
+            and parse_client is self._parse_client
+        ):
+            # The adapter over-claims questions the extension families own (e.g. units
+            # sold read as revenue). The base parser's scope call decides who answers.
+            base = parse_question(
+                question.question,
+                bundle.context,
+                self.client,
+                bundle.rules,
+                bundle.calendar,
+                question.as_of_date,
+            )
+            if base.spec is None and base.reason == "out_of_scope":
+                ext_answer, ext_trace = self._answer_via_ext(
+                    question, bundle, copy.deepcopy(trace), wall_t0, parse_t0, parse_client
+                )
+                if ext_answer.type != "abstain":
+                    ext_trace["scope_crosscheck"] = "ext"
+                    return ext_answer, ext_trace
+                trace["scope_crosscheck"] = "ext_abstained"
+
         trace["spec"] = parsed.spec.model_dump(mode="json")
         engine_t0 = time.perf_counter()
         try:
@@ -378,7 +421,7 @@ class PipelineSystem:
                 # on to the unchanged extension parser.
                 event = parse_event_question(
                     question.question,
-                    parse_client,
+                    self.client if parse_client is self._parse_client else parse_client,
                     bundle.rules,
                     bundle.calendar,
                     question.as_of_date,
@@ -398,6 +441,11 @@ class PipelineSystem:
         trace["timings"]["ext_parse_s"] = round(time.perf_counter() - ext_t0, 6)
         trace["timings"]["parse_s"] = round(time.perf_counter() - parse_t0, 6)
         trace["ext_parse_attempts"] = [_attempt_dict(item) for item in ext.attempts]
+        if ext.spec is None and ext.reason == "disagreement" and settings.ext_answer_agreement:
+            agreed = _agreed_candidate(bundle, ext.candidates, question)
+            if agreed is not None:
+                trace["ext_answer_agreement"] = True
+                ext = dataclasses.replace(ext, spec=agreed, reason=None)
         if ext.spec is None:
             trace["ext_family"] = None
             if settings.enable_plan_path and (ext.reason or "out_of_scope") == "out_of_scope":
@@ -904,6 +952,23 @@ class PipelineSystem:
         )
         self._by_business[key] = bundle
         return bundle
+
+
+def _agreed_candidate(bundle: _BusinessBundle, candidates: list[Any], question: Question) -> Any:
+    """The first disagreeing ext spec when every spec computes the same real answer."""
+    if len(candidates) < 2 or bundle.engine is None:
+        return None
+    lines = []
+    for spec in candidates:
+        try:
+            with bundle.lock:
+                answer = bundle.engine.answer_ext(spec, question.as_of_date)
+        except Exception:  # noqa: BLE001 — an engine failure is not agreement
+            return None
+        if answer.type in {"abstain", "unanswerable"}:
+            return None
+        lines.append(to_submission_line(question.id, answer))
+    return candidates[0] if all(line == lines[0] for line in lines) else None
 
 
 def _split_and_business(workdir: Path) -> tuple[str, str]:

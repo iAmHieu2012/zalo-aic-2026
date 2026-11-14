@@ -90,6 +90,11 @@ def _fit_messages(
     client: Any,
 ) -> tuple[list[dict[str, str]], int]:
     total = len(FEW_SHOT_SETS[few_shot_set % len(FEW_SHOT_SETS)])
+    limit = getattr(client, "parse_example_limit", None)
+    if isinstance(limit, int):
+        # A fine-tuned parser (LoRA) is prompted with the examples it was trained without.
+        keep = max(0, min(limit, total))
+        return build_messages(question, as_of, ctx, few_shot_set, example_limit=keep), total - keep
     return fit_examples(
         total,
         lambda keep: build_messages(question, as_of, ctx, few_shot_set, example_limit=keep),

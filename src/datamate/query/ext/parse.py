@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -39,6 +39,9 @@ class ExtParseResult:
     split_vote: bool = False
     # True when the votes differed only in date ranges and the tie-break picked one.
     period_adjudicated: bool = False
+    # On disagreement: the differing specs, so the caller can accept them when they
+    # compute the same answer (votes often differ only in fields the answer ignores).
+    candidates: list[ExtQuerySpec] = field(default_factory=list)
 
 
 def parse_ext_question(
@@ -83,6 +86,11 @@ def _fit_messages(
     client: Any,
 ) -> tuple[list[dict[str, str]], int]:
     total = len(ext_few_shots(few_shot_set))
+    limit = getattr(client, "parse_example_limit", None)
+    if isinstance(limit, int):
+        # A fine-tuned parser (LoRA) is prompted with the examples it was trained without.
+        keep = max(0, min(limit, total))
+        return build_ext_messages(question, as_of, ctx, few_shot_set, example_limit=keep), total - keep
     return fit_examples(
         total,
         lambda keep: build_ext_messages(question, as_of, ctx, few_shot_set, example_limit=keep),
@@ -195,7 +203,9 @@ def _decide(
                 return ExtParseResult(
                     spec=specs[choice], reason=None, attempts=attempts, period_adjudicated=True
                 )
-        return ExtParseResult(spec=None, reason="disagreement", attempts=attempts)
+        return ExtParseResult(
+            spec=None, reason="disagreement", attempts=attempts, candidates=list(specs)
+        )
     split = any(status == "out" for status, _spec in outcomes)
     return ExtParseResult(spec=specs[0], reason=None, attempts=attempts, split_vote=split)
 

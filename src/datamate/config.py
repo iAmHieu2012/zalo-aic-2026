@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     llm_prompt_budget_tokens: int = 6000
     llm_cache_enabled: bool = True
     llm_disable_thinking: bool = True
+    # LoRA question parser: the adapter's served name (vLLM --lora-modules); None = base.
+    # Only the fast-pass main / extension parsers use it; thinking retry stays on the base.
+    llm_parse_model: str | None = None
+    # Few-shot examples kept in the LoRA parser prompt (it was trained with none).
+    parse_example_limit: int = 0
+    # When the LoRA main parser returns a spec but the base main parser says out of scope,
+    # try the extension path first; keep the LoRA main answer only if ext abstains.
+    lora_scope_crosscheck: bool = True
     seed: int = 20261116
     parse_votes: int = 2
     direct_timeout_s: float = 30.0
@@ -82,6 +90,10 @@ class Settings(BaseSettings):
     # qty_sold with no product while the question names a product in full: abstain.
     # Gemma 4 12B on train dev: blocks 23 of 24 wrong qty_sold answers and 3 right ones.
     qty_sold_named_product_check: bool = True
+    # Ext votes that disagree but compute the same answer are accepted (answer kept only
+    # when every spec gives the same non-abstain, non-unanswerable answer).
+    # Gemma 4 12B on train dev: 39 of 82 disagreements, all 39 right, 0 wrong.
+    ext_answer_agreement: bool = True
     # Verifier prompt with the balanced few-shot set (False = instruction only).
     ext_verify_few_shot: bool = True
     # When set, pipeline loads this JSON as RuleConfig and skips rulebook.md LLM extract.
