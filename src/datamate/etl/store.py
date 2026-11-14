@@ -18,7 +18,7 @@ from datamate.mapping.fields import FIELD_TYPES, SIMPLE_ENTITIES
 from datamate.mapping.model import Mapping, mapping_fingerprint
 
 # Bump on any change to ETL output shape/semantics (even if mapping fingerprint is unchanged).
-ETL_VERSION = "1.14"  # 1.14: order_adjustments (voucher lines), order_measures (number columns)
+ETL_VERSION = "1.15"  # 1.15: walk-in labels also match their bare form ("khách lẻ" -> "lẻ"). 1.14: order_adjustments, order_measures
 
 _TYPE_FROM_FIELD: dict[str, str] = {
     "date": "DATE",

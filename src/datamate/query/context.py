@@ -116,6 +116,16 @@ class ShopContext:
                 break
         return chosen
 
+    def named_products(self, question: str) -> list[str]:
+        """Products whose every content word appears in the question (named in full)."""
+        question_tokens = _content_tokens(question)
+        out: list[str] = []
+        for name in self.product_candidates(question, k=5):
+            product_tokens = _content_tokens(name)
+            if product_tokens and product_tokens <= question_tokens:
+                out.append(name)
+        return out
+
 
 def load_shop_context(con: Any) -> ShopContext:
     return ShopContext(

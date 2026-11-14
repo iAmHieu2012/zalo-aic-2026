@@ -23,6 +23,7 @@ _UNAVAILABLE_STATUS = frozenset({401, 403, 404})
 _BUSY_STATUS = frozenset({408, 429})
 _BUSY_RETRY_DELAY_S = 2.0
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_GEMMA_THOUGHT_RE = re.compile(r"<\|channel>.*?<channel\|>", re.DOTALL)
 
 
 class LLMError(RuntimeError):
@@ -625,10 +626,14 @@ def _choice_from_message(content: object, choices: list[str]) -> str | None:
 
 
 def _strip_think_blocks(content: str) -> str:
-    """Remove Qwen3 hybrid-thinking ``<think>...</think>`` prefixes before JSON parse."""
-    if "<think>" not in content.casefold():
-        return content
-    return _THINK_BLOCK_RE.sub("", content).lstrip()
+    """Remove reasoning blocks before JSON parse: Qwen3 ``<think>...</think>`` and
+    Gemma 4 ``<|channel>thought ...<channel|>`` (when the server runs no reasoning parser)."""
+    lowered = content.casefold()
+    if "<think>" in lowered:
+        content = _THINK_BLOCK_RE.sub("", content).lstrip()
+    if "<|channel>" in content:
+        content = _GEMMA_THOUGHT_RE.sub("", content).lstrip()
+    return content
 
 
 def _parse_llm_json(content: str, finish_reason: str | None) -> Any:

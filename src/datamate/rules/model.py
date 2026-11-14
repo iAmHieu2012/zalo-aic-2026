@@ -85,6 +85,26 @@ class RuleConfig(BaseModel):
     def _nfc_labels(cls, value: list[str]) -> list[str]:
         return [unicodedata.normalize("NFC", label) for label in value]
 
+    @field_validator("shifts")
+    @classmethod
+    def _canonical_shift_names(
+        cls, value: dict[str, tuple[datetime.time, datetime.time]]
+    ) -> dict[str, tuple[datetime.time, datetime.time]]:
+        # Cached extracts may hold the rulebook's words ("ca chiều") as keys.
+        return {shift_key(name): span for name, span in value.items()}
+
+
+def shift_key(name: str) -> str:
+    """The parser names shifts "morning" / "afternoon"; a rulebook extract may use the
+    rulebook's own words ("ca sáng", "Ca chiều")."""
+    folded = unicodedata.normalize("NFD", name.casefold())
+    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Mn")
+    if "sang" in folded or "morning" in folded:
+        return "morning"
+    if "chieu" in folded or "afternoon" in folded:
+        return "afternoon"
+    return name
+
 
 def load_rules(path: Path | str) -> RuleConfig:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))

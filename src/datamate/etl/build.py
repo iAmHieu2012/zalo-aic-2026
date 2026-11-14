@@ -618,6 +618,10 @@ def _walk_in_norm_set(values: list[str]) -> set[str]:
         words = folded.split()
         if len(words) >= 2:
             found.add("".join(word[0] for word in words))
+            # "khách lẻ" is also written bare ("lẻ"), "khách vãng lai" as "vãng lai".
+            if words[0] == "khach":
+                rest = label.split(maxsplit=1)[1]
+                found.add(rest)
     return found
 
 

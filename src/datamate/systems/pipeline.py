@@ -414,6 +414,16 @@ class PipelineSystem:
             trace["timings"]["total_s"] = round(time.perf_counter() - wall_t0, 6)
             return Answer.abstain(), trace
         trace["spec"] = ext.spec.model_dump(mode="json")
+        if (
+            settings.qty_sold_named_product_check
+            and family == "qty_sold"
+            and not getattr(ext.spec, "product", None)
+            and bundle.context.named_products(question.question)
+        ):
+            # The question names a product but the spec counts every product of the unit.
+            trace["abstain_reason"] = "product_missing"
+            trace["timings"]["total_s"] = round(time.perf_counter() - wall_t0, 6)
+            return Answer.abstain(), trace
         verify_t0 = time.perf_counter()
         product = getattr(ext.spec, "product", None)
         product_unit = None

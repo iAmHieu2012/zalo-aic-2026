@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     ext_verify_threshold: float = 0.5
     # Stricter verifier bar when one ext vote said "none" and the other gave a spec.
     ext_verify_threshold_split: float = 0.9
+    # qty_sold with no product while the question names a product in full: abstain.
+    # Gemma 4 12B on train dev: blocks 23 of 24 wrong qty_sold answers and 3 right ones.
+    qty_sold_named_product_check: bool = True
     # Verifier prompt with the balanced few-shot set (False = instruction only).
     ext_verify_few_shot: bool = True
     # When set, pipeline loads this JSON as RuleConfig and skips rulebook.md LLM extract.

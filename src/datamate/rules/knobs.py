@@ -6,7 +6,7 @@ import datetime
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from datamate.rules.model import RuleConfig
+from datamate.rules.model import RuleConfig, shift_key
 
 KnobKind = Literal["enum", "bool", "int", "string_list", "string_dict", "time_ranges", "object"]
 
@@ -348,7 +348,7 @@ def parse_shift_ranges(raw: dict[str, Any]) -> dict[str, tuple[datetime.time, da
             raise TypeError(f"shift {name!r} must be [start, end]")
         start = _parse_hms(pair[0])
         end = _parse_hms(pair[1])
-        out[str(name)] = (start, end)
+        out[shift_key(str(name))] = (start, end)
     return out
 
 
