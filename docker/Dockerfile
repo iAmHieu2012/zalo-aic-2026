@@ -19,7 +19,13 @@ ENV HF_HUB_OFFLINE=1 \
     LLM_BASE_URL=http://127.0.0.1:8000/v1 \
     LLM_MODEL=qwen3-14b \
     LLM_API_KEY=EMPTY \
-    LLM_DISABLE_THINKING=true
+    LLM_DISABLE_THINKING=true \
+    DATAMATE_MODEL_DIR=/models/Qwen3-14B \
+    DATAMATE_LORA_DIR=/models/lora-parse \
+    DATAMATE_TP_SIZE=2
+# BF16 14B (~29.5 GB) does not fit one 32 GB card with KV cache -> tensor parallel over both 5090s.
+# FP8 without LoRA instead: fetch Qwen3-14B-FP8, drop docker/models/lora-parse and set these ENV to
+# DATAMATE_MODEL_DIR=/models/Qwen3-14B-FP8, DATAMATE_TP_SIZE=1.
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -30,6 +36,7 @@ COPY src /app/src
 COPY evals /app/evals
 COPY rules /app/rules
 COPY train/rulebook.md /app/train/rulebook.md
+COPY lora /app/lora
 
 RUN python3 -m pip install --no-cache-dir . \
     && python3 -c "import duckdb, python_calamine, vllm; from datamate.config import PROJECT_ROOT as R; assert (R / 'rules' / 'train.json').is_file(), R; print('ok', vllm.__version__, R)"
@@ -39,7 +46,7 @@ COPY docker/models /models
 COPY docker/predict.sh /app/docker/predict.sh
 COPY docker/make_manifest.py /app/docker/make_manifest.py
 RUN mkdir -p /code/training_code \
-    && cp -r /app/src /app/rules /app/train /app/pyproject.toml /code/training_code/ \
+    && cp -r /app/src /app/rules /app/train /app/lora /app/evals /app/pyproject.toml /code/training_code/ \
     && python3 /app/docker/make_manifest.py /code/training_code /code/training_code/data_manifest.json \
     && cp /app/docker/predict.sh /code/predict.sh \
     && chmod +x /app/docker/predict.sh /code/predict.sh

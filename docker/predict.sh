@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Offline entrypoint for Zalo AI Challenge 2026 DataMate Track:
-# 1. Starts local vLLM (Qwen3-14B-FP8) if GPU + weights exist.
+# 1. Starts local vLLM if GPU + weights exist. Base = DATAMATE_MODEL_DIR; when DATAMATE_LORA_DIR
+#    holds an adapter, vLLM also serves it as "datamate-parse" and the question parsers use it.
 # 2. Runs PipelineSystem (pipeline_llm: Qwen3-14B + DuckDB).
 # 3. If vLLM fails or is absent, writes an all-abstain submission (score 0, never negative).
 set -euo pipefail
@@ -17,6 +18,8 @@ GPU_UTIL="${DATAMATE_GPU_UTIL:-0.90}"
 MAX_SEQS="${DATAMATE_MAX_NUM_SEQS:-16}"
 VLLM_PORT="${DATAMATE_VLLM_PORT:-8000}"
 VLLM_WAIT_S="${DATAMATE_VLLM_WAIT_S:-900}"
+LORA_DIR="${DATAMATE_LORA_DIR:-/models/lora-parse}"
+LORA_NAME="datamate-parse"
 
 mkdir -p "${OUT_DIR}" "${OUT_DIR}/logs" "${OUT_DIR}/work"
 export HF_HUB_OFFLINE=1
@@ -76,6 +79,15 @@ if [[ ! -d "${MODEL_DIR}" ]]; then
   exit 0
 fi
 
+LORA_ARGS=()
+if [[ -f "${LORA_DIR}/adapter_config.json" ]]; then
+  LORA_ARGS=(--enable-lora --lora-modules "${LORA_NAME}=${LORA_DIR}" --max-lora-rank 16 --max-loras 1)
+  export LLM_PARSE_MODEL="${LORA_NAME}"
+  echo "LoRA parser: ${LORA_DIR} (served as ${LORA_NAME})"
+else
+  unset LLM_PARSE_MODEL
+fi
+
 echo "Starting vLLM (${SERVED_NAME}) on 127.0.0.1:${VLLM_PORT} tp=${TP_SIZE} ..."
 vllm serve "${MODEL_DIR}" \
   --served-model-name "${SERVED_NAME}" \
@@ -88,6 +100,7 @@ vllm serve "${MODEL_DIR}" \
   --seed 0 \
   --enable-prefix-caching \
   --reasoning-parser qwen3 \
+  "${LORA_ARGS[@]}" \
   >"${OUT_DIR}/vllm.log" 2>&1 &
 VLLM_PID=$!
 

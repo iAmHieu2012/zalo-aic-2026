@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Download Qwen3-14B-FP8 weights into docker/models/ (not committed).
+# Download base weights into docker/models/<name>/ (not committed).
 # Run once on a machine with network before `docker build`.
+#   bash docker/fetch_model.sh                           # Qwen/Qwen3-14B-FP8 (no LoRA)
+#   DATAMATE_HF_REPO=Qwen/Qwen3-14B bash docker/fetch_model.sh   # BF16 base for the LoRA parser
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEST="${ROOT}/models/Qwen3-14B-FP8"
 REPO="${DATAMATE_HF_REPO:-Qwen/Qwen3-14B-FP8}"
+DEST="${ROOT}/models/$(basename "${REPO}")"
 
 mkdir -p "${DEST}"
 if command -v huggingface-cli >/dev/null 2>&1; then
@@ -21,4 +23,5 @@ PY
 fi
 
 echo "Model ready at ${DEST}"
+echo "LoRA parser: copy the adapter (adapter_config.json, adapter_model.safetensors) to docker/models/lora-parse/"
 echo "Next: docker build -f docker/Dockerfile -t zaic2026_datamate_team:final ."
