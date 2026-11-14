@@ -35,7 +35,8 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY evals /app/evals
 COPY rules /app/rules
-COPY train/rulebook.md /app/train/rulebook.md
+# train/ is gitignored (organizer data); the pipeline reads /data/rulebook.md at run time.
+RUN mkdir -p /app/train
 COPY lora /app/lora
 
 RUN python3 -m pip install --no-cache-dir . \
