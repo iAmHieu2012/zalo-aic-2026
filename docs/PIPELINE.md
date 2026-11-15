@@ -248,7 +248,9 @@ Base và LoRA chạy trên cùng server (`qwen3-14b-bf16` + adapter `datamate-pa
 - **Colab chạy toàn bộ** — `notebooks/colab_pro_runner.ipynb`.
 - **Train LoRA** — `notebooks/train_lora.ipynb` (mục 6.2).
 - **Docker** — `docker/Dockerfile`, `docker/predict.sh`: khởi động vLLM trong container, chạy `pipeline_llm`; vLLM không
-  lên được thì ghi toàn bộ `abstain` (không bao giờ ra điểm âm). Xem `docker/README.md`.
+  lên được thì ghi toàn bộ `abstain` (không bao giờ ra điểm âm). Từ `a578a48`: mặc định base BF16 `Qwen3-14B`
+  (tensor parallel 2) + adapter `/models/lora-parse`; `docker/build_vm.sh` build trên VM cloud. Bản đã nộp, cách build,
+  upload Drive, checksum: `docker/README.md`.
 - **Đánh giá trên train** — `evals/run_eval.py` (chấm với `train/answers.jsonl`, subset trong `evals/splits.yaml`),
   `evals/compare_runs.py` (so hai lần chạy), `evals/ext_threshold.py` (chọn ngưỡng verifier),
   `evals/check_submission.py` (kiểm tra định dạng).
