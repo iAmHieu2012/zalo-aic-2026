@@ -29,7 +29,8 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY evals /app/evals
 COPY rules /app/rules
-COPY train/rulebook.md /app/train/rulebook.md
+# train/ is gitignored (organizer data); the pipeline reads /data/rulebook.md at run time.
+RUN mkdir -p /app/train
 
 RUN python3 -m pip install --no-cache-dir . \
     && python3 -c "import duckdb, python_calamine, vllm; from datamate.config import PROJECT_ROOT as R; assert (R / 'rules' / 'train.json').is_file(), R; print('ok', vllm.__version__, R)"
