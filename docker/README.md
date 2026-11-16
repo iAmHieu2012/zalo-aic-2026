@@ -53,3 +53,16 @@ docker run --rm \
 | `/result/logs/<qid>.json` | File log chi tiết cho từng câu hỏi |
 | `/result/timing.json` | Thống kê thời gian chạy thực tế |
 | `/result/work/` | Thư mục cache tạm của DuckDB & LLM (tuyệt đối không ghi vào `/data`) |
+
+## Nội dung bắt buộc theo Docker guideline (mục 4, 8, 11)
+
+| Trong image | Nguồn trong repo |
+|---|---|
+| `/code/README.md` | `docker/CODE_README.md` (cách làm, model + revision cố định, license, số tham số, dữ liệu) |
+| `/code/training_code/README.md` | `docker/TRAINING_README.md` |
+| `/code/training_code/data_manifest.json` | `docker/make_manifest.py` + `docker/manifest_meta.json` (SHA-256 từng file, base model URL/revision/license) |
+| `/code/training_code/train/` | tập train của BTC nếu build với `TRAIN_URL=<link Drive tới train.zip>` |
+
+Build trên VM: `TEAM=<team> [TRAIN_URL=...] bash docker/build_vm.sh`. Kết quả gửi BTC:
+`zaic2026_datamate_<team>.tar.gz` (không đổi tên sau khi tạo `.md5`), file `.md5`, và số byte `.tar`
+chưa nén trong file `.tar_bytes`.

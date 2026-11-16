@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Build the submission image on a fresh Ubuntu 22.04 cloud VM (no GPU needed, >= 200 GB disk).
-#   TEAM=<team_name> [OUT=~/name.tar.gz] bash build_vm.sh
-# Output: ~/zaic2026_datamate_<team>.tar.gz and its .sha256.
+#   TEAM=<team_name> [TRAIN_URL=<Drive link to train.zip>] bash build_vm.sh
+# Output: ~/zaic2026_datamate_<team>.tar.gz, its .md5 (send to the organizers), .sha256,
+# and .tar_bytes (uncompressed .tar size to send). Do not rename the archive afterwards.
 set -euo pipefail
 
 TEAM="${TEAM:?set TEAM=<team_name>}"
 BRANCH="${BRANCH:-main}"
 BASE_REPO="${BASE_REPO:-Qwen/Qwen3-14B-FP8}"
+BASE_REV="${BASE_REV:-9a283b4a5efbc09ce247e0ae5b02b744739e525a}"  # pinned; see docker/manifest_meta.json
+TRAIN_URL="${TRAIN_URL-}"  # optional: Drive link to a train.zip, packaged under /code/training_code/train
 LORA_URL="${LORA_URL-}"  # this branch has no LoRA support; leave empty
 IMG="zaic2026_datamate_${TEAM}:final"
-OUT="${OUT:-${HOME}/zaic2026_datamate_${TEAM}.tar.gz}"  # set OUT to keep an earlier .tar.gz
+OUT="${OUT:-${HOME}/zaic2026_datamate_${TEAM}.tar.gz}"
 
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sudo sh   # Docker Engine + buildx
@@ -28,7 +31,16 @@ BASE_DIR="docker/models/$(basename "${BASE_REPO}")"
 mkdir -p docker/models
 find docker/models -mindepth 1 -maxdepth 1 ! -name "$(basename "${BASE_REPO}")" ! -name lora-parse -exec rm -rf {} +
 [[ -z "${LORA_URL}" ]] && rm -rf docker/models/lora-parse
-hf download "${BASE_REPO}" --local-dir "${BASE_DIR}"
+hf download "${BASE_REPO}" --revision "${BASE_REV}" --local-dir "${BASE_DIR}"
+if [[ -n "${TRAIN_URL}" ]]; then
+  # TRAIN_URL: Drive link to ONE archive (train.zip / train.tar.gz) of the split folder.
+  find docker/train_data -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+  rm -rf /tmp/train_pkg && mkdir -p /tmp/train_pkg
+  gdown --fuzzy "${TRAIN_URL}" -O /tmp/train_pkg/
+  python3 -c "import glob,shutil; shutil.unpack_archive(glob.glob('/tmp/train_pkg/*')[0], '/tmp/train_pkg/x')"
+  src="$(dirname "$(find /tmp/train_pkg/x -name questions.jsonl | head -1)")"
+  test -f "${src}/questions.jsonl" && cp -r "${src}/." docker/train_data/ && rm -rf /tmp/train_pkg
+fi
 if [[ -n "${LORA_URL}" ]]; then
   gdown --folder "${LORA_URL}" -O docker/models/lora-parse
   test -f docker/models/lora-parse/adapter_config.json
@@ -37,8 +49,14 @@ du -sh docker/models/*
 
 sudo docker build -f docker/Dockerfile -t "${IMG}" .
 sudo docker run --rm --entrypoint bash "${IMG}" -c \
-  'ls /models /code && python3 -c "import datamate, vllm; print(\"image ok\", vllm.__version__)"'
+  'ls /models /code /code/training_code && test -f /code/README.md && test -f /code/training_code/README.md \
+   && python3 -c "import json; m=json.load(open(\"/code/training_code/data_manifest.json\")); print(m[\"n_files\"], \"files in manifest\")" \
+   && python3 -c "import datamate, vllm; print(\"image ok\", vllm.__version__)"'
 
+set -o pipefail
 sudo docker save "${IMG}" | pigz -1 > "${OUT}"
-sha256sum "${OUT}" | tee "${OUT}.sha256"
+cd "$(dirname "${OUT}")"
+md5sum "$(basename "${OUT}")" | tee "$(basename "${OUT}").md5"
+sha256sum "$(basename "${OUT}")" | tee "$(basename "${OUT}").sha256"
+pigz -dc "$(basename "${OUT}")" | wc -c | tee "$(basename "${OUT}").tar_bytes"
 ls -lh "${OUT}"

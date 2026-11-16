@@ -38,10 +38,14 @@ RUN python3 -m pip install --no-cache-dir . \
 # Weights downloaded by docker/fetch_model.sh (not in git).
 COPY docker/models /models
 COPY docker/predict.sh /app/docker/predict.sh
-COPY docker/make_manifest.py /app/docker/make_manifest.py
-RUN mkdir -p /code/training_code \
-    && cp -r /app/src /app/rules /app/train /app/pyproject.toml /code/training_code/ \
+COPY docker/make_manifest.py docker/manifest_meta.json /app/docker/
+COPY docker/CODE_README.md /code/README.md
+COPY docker/TRAINING_README.md /code/training_code/README.md
+# Organizer train split, when build_vm.sh fetched it (TRAIN_URL); otherwise only .gitkeep.
+COPY docker/train_data /code/training_code/train
+RUN cp -r /app/src /app/rules /app/evals /app/pyproject.toml /code/training_code/ \
     && python3 /app/docker/make_manifest.py /code/training_code /code/training_code/data_manifest.json \
+       /app/docker/manifest_meta.json \
     && cp /app/docker/predict.sh /code/predict.sh \
     && chmod +x /app/docker/predict.sh /code/predict.sh
 

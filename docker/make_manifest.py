@@ -1,7 +1,10 @@
 """Write /code/training_code/data_manifest.json: SHA-256 of every file under a directory.
 
 Usage:
-    python docker/make_manifest.py <root> <out.json>
+    python docker/make_manifest.py <root> <out.json> [meta.json]
+
+meta.json (base models with revision/license/URL, datasets, whether training was done)
+is merged into the top level of the manifest.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ def sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-def main(root: str, out: str) -> int:
+def main(root: str, out: str, meta: str | None = None) -> int:
     base, dst = Path(root), Path(out).resolve()
     files = sorted(p for p in base.rglob("*") if p.is_file() and p.resolve() != dst)
     entries = [
@@ -32,8 +35,10 @@ def main(root: str, out: str) -> int:
         for p in files
     ]
     with open(dst, "w", encoding="utf-8", newline="\n") as w:
+        manifest = json.loads(Path(meta).read_text(encoding="utf-8")) if meta else {}
         json.dump(
             {
+                **manifest,
                 "algorithm": "sha256",
                 "root": base.as_posix(),
                 "n_files": len(entries),
@@ -49,4 +54,4 @@ def main(root: str, out: str) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(*sys.argv[1:3]))
+    raise SystemExit(main(*sys.argv[1:4]))

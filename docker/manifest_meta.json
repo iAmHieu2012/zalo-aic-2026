@@ -1,0 +1,23 @@
+{
+  "training_performed": false,
+  "data_generation_performed": false,
+  "base_models": [
+    {
+      "repo": "Qwen/Qwen3-14B-FP8",
+      "url": "https://huggingface.co/Qwen/Qwen3-14B-FP8",
+      "revision": "9a283b4a5efbc09ce247e0ae5b02b744739e525a",
+      "license": "apache-2.0",
+      "parameters": 14768307200,
+      "released": "2025-04-28",
+      "used_for": "inference (packaged at /models/Qwen3-14B-FP8)"
+    }
+  ],
+  "datasets": [
+    {
+      "name": "Zalo AI Challenge 2026 DataMate train split",
+      "source": "organizers",
+      "local_path": "train/",
+      "used_for": "development and evaluation only"
+    }
+  ]
+}
