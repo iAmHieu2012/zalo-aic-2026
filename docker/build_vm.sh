@@ -10,7 +10,7 @@ TEAM="${TEAM:?set TEAM=<team_name>}"
 BRANCH="${BRANCH:-lora-parser}"
 BASE_REPO="${BASE_REPO:-Qwen/Qwen3-14B}"
 BASE_REV="${BASE_REV:-40c069824f4251a91eefaf281ebe4c544efd3e18}"  # pinned; see docker/manifest_meta.json
-TRAIN_URL="${TRAIN_URL-}"  # optional: Drive link to a train.zip, packaged under /code/training_code/train
+TRAIN_URL="${TRAIN_URL-}"  # optional: link to train.zip (Drive or direct), packaged under /code/training_code/train
 LORA_URL="${LORA_URL-https://drive.google.com/drive/folders/1X-7U7ABPoBii9ujuvIBqg4RlFWez1nL8}"
 IMG="zaic2026_datamate_${TEAM}:final"
 # One folder per branch, so builds of different branches never overwrite each other;
@@ -43,10 +43,14 @@ find docker/models -mindepth 1 -maxdepth 1 ! -name "$(basename "${BASE_REPO}")" 
 [[ -z "${LORA_URL}" ]] && rm -rf docker/models/lora-parse
 hf download "${BASE_REPO}" --revision "${BASE_REV}" --local-dir "${BASE_DIR}"
 if [[ -n "${TRAIN_URL}" ]]; then
-  # TRAIN_URL: Drive link to ONE archive (train.zip / train.tar.gz) of the split folder.
+  # TRAIN_URL: link (Google Drive or direct, e.g. the organizers' train.zip) to ONE archive of the split.
   find docker/train_data -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
   rm -rf /tmp/train_pkg && mkdir -p /tmp/train_pkg
-  gdown --fuzzy "${TRAIN_URL}" -O /tmp/train_pkg/
+  if [[ "${TRAIN_URL}" == *drive.google.com* ]]; then
+    gdown --fuzzy "${TRAIN_URL}" -O /tmp/train_pkg/
+  else
+    curl -fL "${TRAIN_URL}" -o "/tmp/train_pkg/$(basename "${TRAIN_URL%%\?*}")"
+  fi
   python3 -c "import glob,shutil; shutil.unpack_archive(glob.glob('/tmp/train_pkg/*')[0], '/tmp/train_pkg/x')"
   src="$(dirname "$(find /tmp/train_pkg/x -name questions.jsonl | head -1)")"
   test -f "${src}/questions.jsonl" && cp -r "${src}/." docker/train_data/ && rm -rf /tmp/train_pkg
