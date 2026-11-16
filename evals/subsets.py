@@ -88,9 +88,28 @@ def is_poc_topic_match(topics: set[str]) -> bool:
     return bool(topics & POC_INCLUDE_TOPICS) and not bool(topics & POC_EXCLUDE_TOPICS)
 
 
+INDUSTRIES_FILE = PROJECT_ROOT / "evals" / "industries.yaml"
+
+
+def load_industries(path: Path = INDUSTRIES_FILE) -> dict[str, list[str]]:
+    """Industry -> train shops (evals/industries.yaml)."""
+    return {k: list(v) for k, v in yaml.safe_load(path.read_text(encoding="utf-8")).items()}
+
+
+def industry_subsets() -> list[str]:
+    return [f"ind_{name}" for name in load_industries()]
+
+
 def select_questions(questions: list[Question], subset: str) -> list[Question]:
     if subset == "all":
         return list(questions)
+    if subset.startswith("ind_"):
+        industries = load_industries()
+        name = subset[len("ind_"):]
+        if name not in industries:
+            raise ValueError(f"Unknown industry {name!r}; expected one of {sorted(industries)}")
+        biz_set = set(industries[name])
+        return [q for q in questions if q.business_id in biz_set]
     splits = load_splits()
     if subset not in splits:
         raise ValueError(f"Unknown subset {subset!r}; expected one of { [*splits.keys(), 'all'] }")

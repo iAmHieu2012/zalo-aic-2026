@@ -1,0 +1,10 @@
+# Train shops grouped by industry, read from each shop's product names (train data only).
+# Used for leave-one-industry-out checks of the LoRA parser: train the adapter without an
+# industry, then evaluate on that industry (`--subset ind_<name>`), the closest train-only
+# proxy for a shop type never seen in training.
+grocery:      [biz_101, biz_102, biz_103, biz_107, biz_108, biz_109]   # tạp hoá
+cafe:         [biz_104, biz_105, biz_106, biz_111, biz_112]            # cà phê, trà sữa
+building:     [biz_113, biz_114, biz_115, biz_116, biz_117, biz_118]   # vật liệu xây dựng
+pharmacy:     [biz_119, biz_120, biz_121, biz_122, biz_123, biz_124]   # nhà thuốc
+restaurant:   [biz_125, biz_126, biz_127, biz_128, biz_129, biz_130]   # quán ăn, quán nhậu
+# biz_110: invoice list without line items, industry unknown (not in any group)

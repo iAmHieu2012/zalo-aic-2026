@@ -28,7 +28,7 @@ from datamate.scoring.scorer import score_file
 from datamate.systems.abstain import AlwaysAbstain
 from datamate.systems.base import System
 from datamate.systems.pipeline import LLM_UNAVAILABLE
-from evals.subsets import select_questions, tag_topics
+from evals.subsets import industry_subsets, select_questions, tag_topics
 from evals.systems_gold import make_pipeline_gold, make_pipeline_llm
 
 # Stop instead of scoring a run whose abstains come from a dead or starved LLM server.
@@ -467,7 +467,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--subset",
         default=None,
-        choices=["poc", "val", "holdout_family", "dev", "all"],
+        choices=["poc", "val", "holdout_family", "dev", "all", *industry_subsets()],
         help="Business/question subset to evaluate (default: poc for train, all otherwise)",
     )
     parser.add_argument(
