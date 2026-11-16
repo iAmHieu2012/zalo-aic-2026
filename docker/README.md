@@ -31,9 +31,9 @@ Máy local không đủ ổ đĩa, nên build trên Google Cloud (tài khoản m
    script tự clone repo, checkout `BRANCH`, rồi chạy `build_vm.sh` của chính branch đó.
    ```bash
    curl -fsSL https://raw.githubusercontent.com/iAmHieu2012/zalo-aic-2026/main/docker/build_vm.sh -o build_vm.sh
-   TEAM=fithcmus-09 bash build_vm.sh                         # FP8 gốc      → ~/build-main/
-   TEAM=fithcmus-09 BRANCH=main-robust bash build_vm.sh      # FP8 + telex  → ~/build-main-robust/
-   TEAM=fithcmus-09 BRANCH=lora-parser bash build_vm.sh      # BF16 + LoRA  → ~/build-lora-parser/
+   TEAM=<team-name> bash build_vm.sh                         # FP8 gốc      → ~/build-main/
+   TEAM=<team-name> BRANCH=main-robust bash build_vm.sh      # FP8 + telex  → ~/build-main-robust/
+   TEAM=<team-name> BRANCH=lora-parser bash build_vm.sh      # BF16 + LoRA  → ~/build-lora-parser/
    ```
    - `TEAM` phải **viết thường** (Docker không nhận chữ hoa trong tên image).
    - Đóng tab SSH hoặc rớt mạng sẽ dừng build. Muốn bỏ máy đi được thì chạy trong `tmux`:
@@ -57,7 +57,7 @@ Máy local không đủ ổ đĩa, nên build trên Google Cloud (tài khoản m
 
 ```bash
 # [Máy ảo]
-IMG=zaic2026_datamate_fithcmus-09:final
+IMG=zaic2026_datamate_<team-name>:final
 # nội dung image
 sudo docker run --rm --entrypoint bash $IMG -c 'du -sh /models/*; ls /code /code/training_code; env | grep -E "DATAMATE_|LLM_"'
 # luồng predict.sh với dữ liệu giả: không GPU → vLLM không lên → phải ra 1 dòng abstain
@@ -66,7 +66,7 @@ echo '{"id":"q_test1","business_id":"x","question":"test","as_of_date":"2026-01-
 sudo docker run --rm --network none --entrypoint bash -v ~/fake_data:/data:ro -v ~/fake_out:/result $IMG /code/predict.sh
 cat ~/fake_out/submission.jsonl
 # file nén nguyên vẹn
-pigz -t ~/build-main/zaic2026_datamate_fithcmus-09.tar.gz && echo "tar.gz OK"
+pigz -t ~/build-main/zaic2026_datamate_<team-name>.tar.gz && echo "tar.gz OK"
 ```
 
 ### Chạy thật với GPU
@@ -105,9 +105,9 @@ Cách đã chạy được (không cần menu `rclone config`):
    Không dùng `rclone config create ... token=...`: lệnh này vẫn mở lại bước đăng nhập và chờ trình duyệt trên VM.
 3. **[Máy ảo] Upload và lấy link công khai** (~15 phút, ~30 MiB/s):
    ```bash
-   cd ~/build-main && rclone copy zaic2026_datamate_fithcmus-09.tar.gz gdrive:datamate_submit -P
-   rclone link gdrive:datamate_submit/zaic2026_datamate_fithcmus-09.tar.gz
-   cat zaic2026_datamate_fithcmus-09.tar.gz.md5 zaic2026_datamate_fithcmus-09.tar.gz.tar_bytes
+   cd ~/build-main && rclone copy zaic2026_datamate_<team-name>.tar.gz gdrive:datamate_submit -P
+   rclone link gdrive:datamate_submit/zaic2026_datamate_<team-name>.tar.gz
+   cat zaic2026_datamate_<team-name>.tar.gz.md5 zaic2026_datamate_<team-name>.tar.gz.tar_bytes
    ```
    Hai bản từ hai branch trùng tên file: upload vào hai thư mục Drive khác nhau (vd. `datamate_submit_main`,
    `datamate_submit_lora`), không đổi tên file.
@@ -119,7 +119,7 @@ Cách đã chạy được (không cần menu `rclone config`):
    print(build("drive","v3").files().get(fileId="<FILE_ID>", fields="md5Checksum,size").execute())
    ```
 5. **[Máy thật] Kiểm tra link:** tải lại từ link trên một máy khác (hoặc mở tab ẩn danh), chạy
-   `md5sum -c zaic2026_datamate_fithcmus-09.tar.gz.md5`, phải ra `OK`.
+   `md5sum -c zaic2026_datamate_<team-name>.tar.gz.md5`, phải ra `OK`.
 6. **Nộp** qua form "Solution Submission": link, dòng trong file `.md5`, số trong file `.tar_bytes`.
    Mỗi đội nộp tối đa 2 lần, BTC chấm bản nộp cuối.
 7. **[Máy thật, trình duyệt] Dọn dẹp:** thu hồi quyền rclone tại https://myaccount.google.com/permissions;
@@ -187,7 +187,7 @@ Cảnh báo `SecretsUsedInArgOrEnv` (ENV `LLM_API_KEY`) khi build là vô hại:
 ```bash
 docker run --rm --gpus '"device=0,1"' --network none --shm-size=16g --entrypoint bash \
   -v "$(pwd)/train:/data:ro" -v "$(pwd)/docker_out:/result" \
-  zaic2026_datamate_fithcmus-09:final /code/predict.sh
+  zaic2026_datamate_<team-name>:final /code/predict.sh
 python -m evals.check_submission --submission docker_out/submission.jsonl --split train
 ```
 
