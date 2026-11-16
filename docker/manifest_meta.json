@@ -1,0 +1,51 @@
+{
+  "training_performed": true,
+  "data_generation_performed": true,
+  "base_models": [
+    {
+      "repo": "Qwen/Qwen3-14B",
+      "url": "https://huggingface.co/Qwen/Qwen3-14B",
+      "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+      "license": "apache-2.0",
+      "parameters": 14768307200,
+      "released": "2025-04-27",
+      "used_for": "inference (packaged at /models/Qwen3-14B) and QLoRA training base"
+    }
+  ],
+  "datasets": [
+    {
+      "name": "Zalo AI Challenge 2026 DataMate train split",
+      "source": "organizers",
+      "local_path": "train/",
+      "used_for": "development and evaluation only"
+    },
+    {
+      "name": "LoRA parser labels",
+      "local_path": "lora/data/labels.jsonl",
+      "examples": 2790,
+      "questions": 1890,
+      "shops": 21,
+      "splits": {
+        "train": [
+          "dev",
+          "poc"
+        ],
+        "validation": [
+          "val",
+          "holdout_family"
+        ]
+      },
+      "generator": "lora/build_labels.py (base Qwen3-14B, temperature 0, seed 0; kept only votes reproducing train answers)"
+    }
+  ],
+  "adapters": [
+    {
+      "name": "lora-parse",
+      "path_in_image": "/models/lora-parse",
+      "copy": "checkpoints/lora-parse",
+      "rank": 16,
+      "alpha": 32,
+      "trained_on": "lora/data/labels.jsonl"
+    }
+  ]
+}

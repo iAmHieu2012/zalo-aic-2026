@@ -189,3 +189,17 @@ TEAM=<team> BRANCH=main BASE_REPO=Qwen/Qwen3-14B-FP8 LORA_URL= bash build_vm.sh
 Branch `main` dùng Dockerfile cũ (mặc định `/models/Qwen3-14B-FP8`, 1 GPU) và vẫn có dòng `COPY train/rulebook.md`,
 nên cần bỏ dòng đó như commit `a086cb0` trước khi build. Trên `lora-parser` thì đổi `ENV` trong Dockerfile thành
 `DATAMATE_MODEL_DIR=/models/Qwen3-14B-FP8`, `DATAMATE_TP_SIZE=1` và không tải adapter. Image khoảng 25–30 GB.
+
+## Nội dung bắt buộc theo Docker guideline (mục 4, 8, 11)
+
+| Trong image | Nguồn trong repo |
+|---|---|
+| `/code/README.md` | `docker/CODE_README.md` (cách làm, model + revision cố định, license, số tham số, dữ liệu) |
+| `/code/training_code/README.md` | `docker/TRAINING_README.md` |
+| `/code/training_code/data_manifest.json` | `docker/make_manifest.py` + `docker/manifest_meta.json` (SHA-256 từng file, base model URL/revision/license) |
+| `/code/training_code/checkpoints/lora-parse/` | adapter (bản sao của `/models/lora-parse`), cùng `lora/` (sinh nhãn, train, nhãn) và `notebooks/train_lora.ipynb` |
+| `/code/training_code/train/` | tập train của BTC nếu build với `TRAIN_URL=<link Drive tới train.zip>` |
+
+Build trên VM: `TEAM=<team> [TRAIN_URL=...] bash docker/build_vm.sh`. Kết quả gửi BTC:
+`zaic2026_datamate_<team>.tar.gz` (không đổi tên sau khi tạo `.md5`), file `.md5`, và số byte `.tar`
+chưa nén trong file `.tar_bytes`.

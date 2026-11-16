@@ -36,3 +36,7 @@ docker/models/
 
 # Scratch notes
 temp.md
+
+# organizer train split fetched at build time (docker/build_vm.sh TRAIN_URL)
+docker/train_data/*
+!docker/train_data/.gitkeep
