@@ -67,6 +67,12 @@ sudo docker run --rm --entrypoint bash "${IMG}" -c \
    && python3 -c "import json; m=json.load(open(\"/code/training_code/data_manifest.json\")); print(m[\"n_files\"], \"files in manifest\")" \
    && python3 -c "import datamate, vllm; print(\"image ok\", vllm.__version__)"'
 
+# Free disk before export: the weights are inside the image now; drop downloaded weights,
+# build cache and any archive left by an earlier failed run (a 200 GB disk filled up here).
+rm -rf docker/models
+sudo docker builder prune -af >/dev/null
+rm -f "${OUT}" "${OUT}".md5 "${OUT}".sha256 "${OUT}".tar_bytes
+df -h "$(dirname "${OUT}")"
 set -o pipefail
 sudo docker save "${IMG}" | pigz -1 > "${OUT}"
 cd "$(dirname "${OUT}")"
