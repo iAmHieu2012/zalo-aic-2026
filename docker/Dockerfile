@@ -29,6 +29,7 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY evals /app/evals
 COPY rules /app/rules
+COPY scripts /app/scripts
 # train/ is gitignored (organizer data); the pipeline reads /data/rulebook.md at run time.
 RUN mkdir -p /app/train
 
@@ -43,7 +44,7 @@ COPY docker/CODE_README.md /code/README.md
 COPY docker/TRAINING_README.md /code/training_code/README.md
 # Organizer train split, when build_vm.sh fetched it (TRAIN_URL); otherwise only .gitkeep.
 COPY docker/train_data /code/training_code/train
-RUN cp -r /app/src /app/rules /app/evals /app/pyproject.toml /code/training_code/ \
+RUN cp -r /app/src /app/rules /app/evals /app/scripts /app/pyproject.toml /code/training_code/ \
     && python3 /app/docker/make_manifest.py /code/training_code /code/training_code/data_manifest.json \
        /app/docker/manifest_meta.json \
     && cp /app/docker/predict.sh /code/predict.sh \
