@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     ext_verify_threshold_split: float = 0.9
     # Verifier prompt with the balanced few-shot set (False = instruction only).
     ext_verify_few_shot: bool = True
+    # Rewrite Telex-typed words ('thangs' -> 'tháng') once the shop is loaded (parse.telex).
+    untelex: bool = True
     # When set, pipeline loads this JSON as RuleConfig and skips rulebook.md LLM extract.
     rules_override_path: Path | None = None
     # Qwen3 thinking for the parse calls: "off"; "retry" = a second pass with thinking for

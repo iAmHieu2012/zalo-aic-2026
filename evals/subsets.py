@@ -91,6 +91,10 @@ def is_poc_topic_match(topics: set[str]) -> bool:
 def select_questions(questions: list[Question], subset: str) -> list[Question]:
     if subset == "all":
         return list(questions)
+    if subset == "telex":  # questions parse.telex rewrites (shop names not protected here)
+        from datamate.parse.telex import untelex
+
+        return [q for q in questions if untelex(q.question) != q.question]
     splits = load_splits()
     if subset not in splits:
         raise ValueError(f"Unknown subset {subset!r}; expected one of { [*splits.keys(), 'all'] }")

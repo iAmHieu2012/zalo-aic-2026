@@ -29,6 +29,7 @@ from datamate.metrics.ext_families import product_base_unit
 from datamate.metrics.rank import answer_rank
 from datamate.metrics.units import answer_unit
 from datamate.parse.plain import plain_question
+from datamate.parse.telex import protected_words, untelex
 from datamate.parse.text import expand_short_years, spell_month_abbrev
 from datamate.query.attributes import describe_attr, parse_attr_question, readme_column_docs
 from datamate.query.context import ShopContext, load_shop_context
@@ -217,6 +218,14 @@ class PipelineSystem:
                     trace["timings"]["total_s"] = round(time.perf_counter() - wall_t0, 6)
                     return Answer.unanswerable("asks for an opinion"), trace
             bundle = self._bundle_for(split, business_id)
+            if settings.untelex and bundle.context is not None:
+                ctx = bundle.context
+                keep = protected_words(ctx.product_names + ctx.categories + ctx.channels
+                                       + ctx.payment_methods + ctx.segments)
+                plain = untelex(question.question, keep)
+                if plain != question.question:
+                    trace["question_untelex"] = plain
+                    question = question.model_copy(update={"question": plain})
             trace["warnings"] = list(bundle.warnings)
             trace["mapping_fingerprint"] = bundle.mapping_fingerprint
             if bundle.mapping is not None and bundle.mapping.quarantined:

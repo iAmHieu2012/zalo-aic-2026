@@ -33,6 +33,52 @@ _SERIAL_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 _EXCEL_EPOCH = datetime.datetime(1899, 12, 30)
 
 
+_MONTHS_EN = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_WEEKDAY_PREFIX_RE = re.compile(
+    r"^(?:thứ\s*(?:hai|ba|tư|năm|sáu|bảy|[2-7])|chủ\s*nhật|cn|t[2-7])\s*[,\-]?\s*", re.IGNORECASE)
+_NGAY_PREFIX_RE = re.compile(r"^ngày\s+", re.IGNORECASE)
+_VN_LONG_RE = re.compile(
+    r"^(\d{1,2})\s+tháng\s+(\d{1,2})(?:\s*(?:năm|,)\s*|\s+)(\d{4})(.*)$", re.IGNORECASE)
+_HOUR_H_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[hg]\s*(\d{2})(?!\d)", re.IGNORECASE)
+_TIME_FIRST_RE = re.compile(r"^(\d{1,2}:\d{2}(?::\d{2})?)\s*,?\s+(.+)$")
+_YMD_SLASH_RE = re.compile(r"^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(.*)$")
+_DMY_SHORT_RE = re.compile(r"^(\d{1,2})([/.\-])(\d{1,2})\2(\d{2})(\s.*)?$")
+_EN_MDY_RE = re.compile(r"^([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(.*)$")
+_EN_DMY_RE = re.compile(r"^(\d{1,2})[\s\-]([a-z]{3})[a-z]*\.?[\s\-,]+(\d{4})(.*)$")
+
+
+def _rewrite_date_text(s: str) -> str:
+    """Other common ways of writing a date, rewritten to a form the patterns above read.
+    Used only when the text as written does not parse."""
+    t = s.strip().rstrip(",.").strip()
+    t = _WEEKDAY_PREFIX_RE.sub("", t)
+    t = _NGAY_PREFIX_RE.sub("", t)
+    t = _HOUR_H_RE.sub(lambda m: f"{m.group(1)}:{m.group(2)}", t)
+    m = _TIME_FIRST_RE.match(t)
+    if m is not None:
+        t = f"{m.group(2)} {m.group(1)}"
+    m = _VN_LONG_RE.match(t)
+    if m is not None:
+        t = f"{m.group(1)}/{m.group(2)}/{m.group(3)}{m.group(4)}"
+    m = _YMD_SLASH_RE.match(t)
+    if m is not None:
+        t = f"{m.group(1)}-{m.group(2)}-{m.group(3)}{m.group(4)}"
+    m = _DMY_SHORT_RE.match(t)
+    if m is not None:
+        t = f"{m.group(1)}/{m.group(3)}/20{m.group(4)}{m.group(5) or ''}"
+    low = t.lower()
+    for rx, order in ((_EN_MDY_RE, "mdy"), (_EN_DMY_RE, "dmy")):
+        m = rx.match(low)
+        if m is not None:
+            a, b, y, rest = m.groups()
+            mon, day = (a, b) if order == "mdy" else (b, a)
+            if mon in _MONTHS_EN:
+                t = f"{int(day)}/{_MONTHS_EN[mon]}/{y}{rest}"
+            break
+    return " ".join(t.split())
+
+
 def _clean_input(raw: str | None) -> str | None:
     if raw is None or not isinstance(raw, str):
         return None
@@ -70,6 +116,15 @@ def parse_date(raw: str | None, default_year: int | None = None) -> datetime.dat
     s = _clean_input(raw)
     if s is None:
         return None
+    got = _parse_date_text(s, default_year)
+    if got is None:
+        alt = _rewrite_date_text(s)
+        if alt and alt != s:
+            got = _parse_date_text(alt, default_year)
+    return got
+
+
+def _parse_date_text(s: str, default_year: int | None) -> datetime.date | None:
 
     m = _ISO_DATETIME_RE.match(s)
     if m is not None:
@@ -111,6 +166,17 @@ def parse_timestamp(
     s = _clean_input(raw)
     if s is None:
         return None
+    got = _parse_timestamp_text(s, default_year)
+    if got is None:
+        alt = _rewrite_date_text(s)
+        if alt and alt != s:
+            got = _parse_timestamp_text(alt, default_year)
+    return got
+
+
+def _parse_timestamp_text(
+    s: str, default_year: int | None
+) -> datetime.datetime | None:
 
     for pattern in (_ISO_DATETIME_RE, _DMY_RE, _THG_RE, _DM_RE):
         m = pattern.match(s)

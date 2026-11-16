@@ -467,7 +467,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--subset",
         default=None,
-        choices=["poc", "val", "holdout_family", "dev", "all"],
+        choices=["poc", "val", "holdout_family", "dev", "all", "telex"],
         help="Business/question subset to evaluate (default: poc for train, all otherwise)",
     )
     parser.add_argument(

@@ -4,7 +4,11 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
-_CURRENCY_SUFFIX_RE = re.compile(r"\s*(?:vnđ|vnd|đồng|dong|đ)\s*$", re.IGNORECASE)
+_CURRENCY_SUFFIX_RE = re.compile(r"\s*(?:vnđ|vnd|đồng|dong|đ|₫)\s*$", re.IGNORECASE)
+_CURRENCY_PREFIX_RE = re.compile(r"^(?:vnđ|vnd|đ|₫)\s*", re.IGNORECASE)
+
+# "<int>k<digits>", e.g. "45k5" = 45 500 (like "1tr2")
+_RULE_K_RE = re.compile(r"^(?P<int_part>\d+)\s*k\s*(?P<frac_digits>\d{1,3})$")
 
 # Rule (a): <int>tr<digits>, e.g. "1tr440", "9tr960", "36tr936", "1tr4"
 _RULE_A_RE = re.compile(r"^(?P<int_part>\d+)\s*tr\s*(?P<frac_digits>\d{1,6})$")
@@ -44,6 +48,9 @@ def parse_money(raw: str | None) -> int | None:
         return None
 
     sign = 1
+    if s.startswith("(") and s.endswith(")"):  # accounting negative: "(50.000)"
+        sign, s = -1, s[1:-1].strip()
+    s = _CURRENCY_PREFIX_RE.sub("", s).strip()
     if s.startswith("-"):
         sign = -1
         s = s[1:].strip()
@@ -60,6 +67,10 @@ def parse_money(raw: str | None) -> int | None:
         millions = int(m_a.group("int_part")) * 1_000_000
         frac_str = m_a.group("frac_digits").ljust(6, "0")
         return sign * (millions + int(frac_str))
+
+    m_k = _RULE_K_RE.match(s)
+    if m_k is not None:
+        return sign * (int(m_k.group("int_part")) * 1000 + int(m_k.group("frac_digits").ljust(3, "0")))
 
     # Rule (b): "<num>[.,<frac>] (tr|triệu|k|nghìn|ngàn)"
     m_b = _RULE_B_RE.match(s)
