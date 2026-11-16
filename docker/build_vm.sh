@@ -5,7 +5,7 @@
 set -euo pipefail
 
 TEAM="${TEAM:?set TEAM=<team_name>}"
-BRANCH="${BRANCH:-submit-main}"
+BRANCH="${BRANCH:-main}"
 BASE_REPO="${BASE_REPO:-Qwen/Qwen3-14B-FP8}"
 LORA_URL="${LORA_URL-}"  # this branch has no LoRA support; leave empty
 IMG="zaic2026_datamate_${TEAM}:final"
