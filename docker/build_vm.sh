@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the submission image on a fresh Ubuntu 22.04 cloud VM (no GPU needed, >= 200 GB disk).
 #   TEAM=<team_name> [TRAIN_URL=<Drive link to train.zip>] bash build_vm.sh
-# Output: ~/zaic2026_datamate_<team>.tar.gz, its .md5 (send to the organizers), .sha256,
+# Output: ~/build-<branch>/zaic2026_datamate_<team>.tar.gz, its .md5 (send to the organizers), .sha256,
 # and .tar_bytes (uncompressed .tar size to send). Do not rename the archive afterwards.
 set -euo pipefail
 
@@ -12,7 +12,10 @@ BASE_REV="${BASE_REV:-9a283b4a5efbc09ce247e0ae5b02b744739e525a}"  # pinned; see 
 TRAIN_URL="${TRAIN_URL-}"  # optional: Drive link to a train.zip, packaged under /code/training_code/train
 LORA_URL="${LORA_URL-}"  # this branch has no LoRA support; leave empty
 IMG="zaic2026_datamate_${TEAM}:final"
-OUT="${OUT:-${HOME}/zaic2026_datamate_${TEAM}.tar.gz}"
+# One folder per branch, so builds of different branches never overwrite each other;
+# the file name itself stays as the guideline requires.
+OUT="${OUT:-${HOME}/build-${BRANCH}/zaic2026_datamate_${TEAM}.tar.gz}"
+mkdir -p "$(dirname "${OUT}")"
 
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sudo sh   # Docker Engine + buildx

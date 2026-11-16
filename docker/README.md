@@ -64,5 +64,5 @@ docker run --rm \
 | `/code/training_code/train/` | tập train của BTC nếu build với `TRAIN_URL=<link Drive tới train.zip>` |
 
 Build trên VM: `TEAM=<team> [TRAIN_URL=...] bash docker/build_vm.sh`. Kết quả gửi BTC:
-`zaic2026_datamate_<team>.tar.gz` (không đổi tên sau khi tạo `.md5`), file `.md5`, và số byte `.tar`
+`~/build-<branch>/zaic2026_datamate_<team>.tar.gz` (mỗi branch một thư mục; không đổi tên sau khi tạo `.md5`), file `.md5`, và số byte `.tar`
 chưa nén trong file `.tar_bytes`.
