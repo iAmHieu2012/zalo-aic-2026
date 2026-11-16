@@ -4,6 +4,7 @@
 # Output: ~/build-<branch>/zaic2026_datamate_<team>.tar.gz, its .md5 (send to the organizers), .sha256,
 # and .tar_bytes (uncompressed .tar size to send). Do not rename the archive afterwards.
 set -euo pipefail
+SELF="$(readlink -f "$0")"
 
 TEAM="${TEAM:?set TEAM=<team_name>}"
 BRANCH="${BRANCH:-lora-parser}"
@@ -28,6 +29,12 @@ cd "${HOME}"
 [[ -d zalo-aic-2026 ]] || git clone -b "${BRANCH}" https://github.com/iAmHieu2012/zalo-aic-2026.git
 cd zalo-aic-2026
 git fetch origin && git checkout "${BRANCH}" && git pull --ff-only
+# Always run the build script of the branch being built (its model / LoRA defaults),
+# whichever copy of this file was started.
+if [[ -z "${BUILD_VM_REEXEC:-}" ]] && ! cmp -s "${SELF}" docker/build_vm.sh; then
+  export BUILD_VM_REEXEC=1 TEAM BRANCH
+  exec bash docker/build_vm.sh
+fi
 
 BASE_DIR="docker/models/$(basename "${BASE_REPO}")"
 # Only this build's weights go into the image: drop leftovers of an earlier build on the same VM.
